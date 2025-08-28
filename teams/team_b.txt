@@ -1,0 +1,41 @@
+﻿Alakazam (M)
+Ability: No Ability
+- Psychic
+- Thunder Wave
+- Recover
+- Seismic Toss
+
+Snorlax
+Ability: No Ability
+- Body Slam
+- Hyper Beam
+- Earthquake
+- Self-Destruct
+
+Chansey (F)
+Ability: No Ability
+- Thunder Wave
+- Ice Beam
+- Soft-Boiled
+- Thunderbolt
+
+Zapdos
+Ability: No Ability
+- Thunderbolt
+- Drill Peck
+- Thunder Wave
+- Agility
+
+Golem (M)
+Ability: No Ability
+- Earthquake
+- Rock Slide
+- Explosion
+- Body Slam
+
+Starmie
+Ability: No Ability
+- Thunder Wave
+- Blizzard
+- Surf
+- Recover

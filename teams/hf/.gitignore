@@ -1,0 +1,4 @@
+# Keep directory but ignore downloaded data
+*
+!.gitignore
+!README.md

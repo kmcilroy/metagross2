@@ -1,0 +1,41 @@
+﻿Tauros (M)
+Ability: No Ability
+- Blizzard
+- Body Slam
+- Hyper Beam
+- Earthquake
+
+Snorlax
+Ability: No Ability
+- Blizzard
+- Body Slam
+- Earthquake
+- Self-Destruct
+
+Chansey (F)
+Ability: No Ability
+- Ice Beam
+- Thunder Wave
+- Soft-Boiled
+- Seismic Toss
+
+Exeggutor
+Ability: No Ability
+- Sleep Powder
+- Psychic
+- Stun Spore
+- Explosion
+
+Starmie
+Ability: No Ability
+- Thunder Wave
+- Blizzard
+- Thunderbolt
+- Recover
+
+Rhydon (M)
+Ability: No Ability
+- Earthquake
+- Rock Slide
+- Substitute
+- Body Slam
