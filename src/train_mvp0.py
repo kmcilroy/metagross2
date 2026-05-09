@@ -164,13 +164,14 @@ async def train_once():
     last_learner: LearningPlayerAC | None = None
     best_eval_wr: float = -1.0
 
+    # TensorBoard writer is always created; checkpoint dir only when SAVE_CHECKPOINTS.
+    run_name = f"run-{datetime.now():%Y%m%d-%H%M%S}"
+    log_root = Path(TENSORBOARD_LOGDIR)
+    log_root.mkdir(parents=True, exist_ok=True)
+    writer = SummaryWriter(str(log_root / run_name))
+
     if SAVE_CHECKPOINTS:
         _ensure_dir(CHECKPOINT_DIR)
-        # TensorBoard writer
-        run_name = f"run-{datetime.now():%Y%m%d-%H%M%S}"
-        log_root = Path(globals().get("TENSORBOARD_LOGDIR", "runs/metagross"))
-        log_root.mkdir(parents=True, exist_ok=True)
-        writer = SummaryWriter(str(log_root / run_name))
 
     for bi in range(TOTAL_BATTLES):
         # Fresh instances each battle -> unique auto-generated usernames

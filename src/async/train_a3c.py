@@ -51,14 +51,14 @@ class GlobalAC(nn.Module):
         self.actor = nn.Sequential(
             nn.Linear(state_dim + n_actions, hidden),
             nn.ReLU(),
-            nn.ReLU(),
+            nn.Linear(hidden, hidden),
             nn.ReLU(),
             nn.Linear(hidden, 1),
         )
         self.critic = nn.Sequential(
             nn.Linear(state_dim, hidden),
             nn.ReLU(),
-            nn.ReLU(),
+            nn.Linear(hidden, hidden),
             nn.ReLU(),
             nn.Linear(hidden, 1),
         )
