@@ -1,41 +1,34 @@
 from __future__ import annotations
-from typing import List, TYPE_CHECKING, Dict, Any
-import os, csv, json
+import csv
+from pathlib import Path
+from typing import Any, Dict, List, TYPE_CHECKING
+
 import numpy as np
 import torch
 import torch.nn as nn
-import torch.optim as optim
 import torch.nn.functional as F
+import torch.optim as optim
 from torch.distributions import Categorical
-from torch.nn.utils import clip_grad_norm_
 
 from poke_env.player import Player
+
 if TYPE_CHECKING:
     from poke_env.environment import AbstractBattle  # type: ignore
 
-from typing import List, Dict, Any
-import numpy as np
-import torch
-import torch.nn.functional as F
-from torch import nn, optim
-from torch.distributions import Categorical
-from poke_env.player.player import Player  # adjust if your import path differs
-
-
 from .encoder import encode_battle
 from .utils.poke_helpers import (
-    enumerate_legal_indices,
-    order_from_index,
     encode_action_index,
+    enumerate_legal_indices,
     MAX_ACTIONS,
+    order_from_index,
 )
 from .config import (
-    SOFTMAX_TEMPERATURE,
     ENTROPY_BETA,
-    VALUE_COEF,
-    MAX_GRAD_NORM,
-    LOG_TURN_BY_TURN,
     LOG_DIR,
+    LOG_TURN_BY_TURN,
+    MAX_GRAD_NORM,
+    SOFTMAX_TEMPERATURE,
+    VALUE_COEF,
 )
 
 
@@ -111,10 +104,9 @@ class LearningPlayerAC(Player):
 
         self.episode_idx: int = 0
 
-        # Optional knobs (fallback to globals if present)
-        self.entropy_beta = float(globals().get("ENTROPY_BETA", 0.01))
-        self.value_coef = float(globals().get("VALUE_COEF", 0.5))
-        self.max_grad_norm = float(globals().get("MAX_GRAD_NORM", 1.0))
+        self.entropy_beta = float(ENTROPY_BETA)
+        self.value_coef = float(VALUE_COEF)
+        self.max_grad_norm = float(MAX_GRAD_NORM)
 
         # last episode stats (for external logging if desired)
         self.last_episode_return: float = 0.0
@@ -152,8 +144,7 @@ class LearningPlayerAC(Player):
         else:
             with torch.no_grad():
                 logits = self.model.actor_logits(sa)  # [L]
-                temp = float(globals().get("SOFTMAX_TEMPERATURE", 1.0))
-                probs = torch.softmax(logits / max(1e-6, temp), dim=0)
+                probs = torch.softmax(logits / max(1e-6, float(SOFTMAX_TEMPERATURE)), dim=0)
                 dist = Categorical(probs=probs)
                 choice_pos = int(dist.sample().item())
                 probs_list = probs.detach().cpu().tolist()
@@ -314,27 +305,15 @@ class LearningPlayerAC(Player):
         return metrics
     
     def _flush_step_logs(self) -> None:
-        """
-        Write per-turn logs to CSV if enabled via LOG_TURN_BY_TURN.
-        Safe no-op if disabled or if there are no step logs.
-        """
-        if not self._step_logs:
+        """Write per-turn logs to CSV if LOG_TURN_BY_TURN is enabled."""
+        if not self._step_logs or not LOG_TURN_BY_TURN:
             return
 
-        # Read feature flags from globals to avoid import cycles
-        log_turns = bool(globals().get("LOG_TURN_BY_TURN", False))
-        if not log_turns:
-            return
-
-        from pathlib import Path
-        import csv
-
-        log_dir = str(globals().get("LOG_DIR", "logs"))
-        Path(log_dir).mkdir(parents=True, exist_ok=True)
+        Path(LOG_DIR).mkdir(parents=True, exist_ok=True)
 
         ep = int(getattr(self, "episode_idx", 0) or 0)
         fname = f"episode_{ep:04d}.csv" if ep > 0 else "episode.csv"
-        fpath = Path(log_dir) / fname
+        fpath = Path(LOG_DIR) / fname
 
         # Determine columns (union of keys across rows, consistent order)
         keys = []

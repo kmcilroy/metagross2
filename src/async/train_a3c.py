@@ -32,8 +32,6 @@ from src.agents.registry import make_player          # 2) agent factory via regi
 from src.scheduling.tournament import single_match   # 3) simple scheduler; swap for round-robin later
 from src.psio.accounts import fresh_username         # 4) username jitter helper
 
-from poke_env.player.baselines import RandomPlayer
-
 import importlib
 SharedAdam = importlib.import_module("src.async.shared_optim").SharedAdam
 
