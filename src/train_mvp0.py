@@ -17,11 +17,12 @@ from typing import Dict, Optional
 
 import numpy as np
 import torch
-from poke_env.player import RandomPlayer
 from poke_env.ps_client.server_configuration import LocalhostServerConfiguration
 from torch.utils.tensorboard import SummaryWriter
 
 from .agent2 import LearningPlayerAC
+from .agents.opponents import make_opponent_factory
+from .encoder import ENCODER_DIM
 from .config import (
     CHECKPOINT_DIR,
     EPSILON_DECAY_BATTLES,
@@ -91,8 +92,9 @@ def _carry_model(from_player: LearningPlayerAC, to_player: LearningPlayerAC):
 
 
 # ---------- evaluation (periodic) ----------
-async def eval_once(base_learner, team_a, team_b, games, fmt, hidden, lr, arch, max_concurrent):
-    """Greedy (eps=0) eval for `games` battles vs RandomPlayer. No learning."""
+async def eval_once(base_learner, team_a, team_b, games, fmt, hidden, lr, arch,
+                    max_concurrent, opponent_factory):
+    """Greedy (eps=0) eval for `games` battles vs the configured opponent. No learning."""
     wins = 0
     term_returns = []
     steps_all = []
@@ -112,12 +114,11 @@ async def eval_once(base_learner, team_a, team_b, games, fmt, hidden, lr, arch, 
         _carry_model(base_learner, eval_agent)
         eval_agent.episode_idx = -1
 
-        opponent = RandomPlayer(
+        opponent = opponent_factory.make_player(
             battle_format=fmt,
-            server_configuration=LocalhostServerConfiguration,
             team=team_b,
-            log_level=30,
             max_concurrent_battles=max_concurrent,
+            state_dim=ENCODER_DIM,
         )
 
         steps = 0
@@ -163,6 +164,7 @@ async def train(args):
 
     team_a = load_team(args.team_a)
     team_b = load_team(args.team_b)
+    opponent_factory = make_opponent_factory(args.opponent)
 
     def eps_for_battle(bi: int) -> float:
         if bi >= args.epsilon_decay_battles:
@@ -201,12 +203,11 @@ async def train(args):
         )
         learner.episode_idx = bi + 1
 
-        opponent = RandomPlayer(
+        opponent = opponent_factory.make_player(
             battle_format=args.format,
-            server_configuration=LocalhostServerConfiguration,
             team=team_b,
-            log_level=30,
             max_concurrent_battles=args.max_concurrent_battles,
+            state_dim=ENCODER_DIM,
         )
 
         if last_learner is not None:
@@ -310,6 +311,7 @@ async def train(args):
                 base, team_a, team_b, args.eval_games,
                 fmt=args.format, hidden=args.hidden, lr=args.lr, arch=args.arch,
                 max_concurrent=args.max_concurrent_battles,
+                opponent_factory=opponent_factory,
             )
             print(f"[Eval @ ep {bi+1}] win_rate={em['win_rate']:.3f}  "
                   f"avg_return={em['avg_return']:.2f}  steps_avg={em['steps_avg']:.1f}")
@@ -360,6 +362,8 @@ def parse_args():
                    help="Opponent team file (resolved relative to src/)")
     p.add_argument("--max-concurrent-battles", type=int, default=MAX_CONCURRENT_BATTLES)
     p.add_argument("--log-every", type=int, default=LOG_EVERY)
+    p.add_argument("--opponent", type=str, default="random",
+                   help="'random' or 'ac:path/to/checkpoint.pt' for a frozen AC opponent")
     return p.parse_args()
 
 

@@ -23,6 +23,7 @@ import torch
 import torch.multiprocessing as mp
 from torch.utils.tensorboard import SummaryWriter
 
+from src.agents.opponents import OpponentFactory, make_opponent_factory
 from src.agents.registry import make_player
 from src.encoder import ENCODER_DIM
 from src.models import list_models, make_model
@@ -54,6 +55,7 @@ class WorkerConfig:
     base_lr: float
     anneal_lr: bool
     team_provider: TeamProvider
+    opponent_factory: OpponentFactory
 
 
 def epsilon_for_episode(ep_idx: int, start: float, final: float, decay_episodes: int) -> float:
@@ -136,13 +138,15 @@ def worker_entry(global_model, opt, obs_dim: int, cfg: WorkerConfig):
                 max_concurrent_battles=cfg.max_concurrent_battles,
                 extra={"epsilon": float(eps), "lr": cfg.base_lr, "hidden": cfg.hidden, "arch": cfg.arch},
             )
-            rnd_player = make_player(
-                spec.opponent_key,
-                username=fresh_username("mgr", cfg.wid, episodes_done + 1),
-                team=team2_str,
+            # Opponent comes from --opponent (random | ac:CKPT). Spec ignored
+            # for opponent_key now -- factory owns the choice.
+            rnd_player = cfg.opponent_factory.make_player(
                 battle_format=cfg.format,
+                team=team2_str,
                 max_concurrent_battles=cfg.max_concurrent_battles,
+                state_dim=obs_dim,
             )
+            del spec  # silences unused-name warnings; we still call next() to advance the iterator
 
             # Sync agent's actor-critic from the shared global model so the
             # behavior policy reflects training progress (otherwise the
@@ -274,6 +278,9 @@ def main():
     parser.add_argument("--grad-clip", type=float, default=0.5)
     parser.add_argument("--anneal-lr", action="store_true")
 
+    parser.add_argument("--opponent", type=str, default="random",
+                        help="'random' or 'ac:path/to/checkpoint.pt' for a frozen AC opponent")
+
     parser.add_argument("--run-name", type=str, default="auto")
     parser.add_argument("--verbose", action="store_true")
 
@@ -314,6 +321,10 @@ def main():
         min_mons=6,
         max_sample_tries=5,
     )
+
+    # Parse --opponent once. FrozenAcOpponent loads the checkpoint here so
+    # an invalid path fails before any worker forks.
+    opponent_factory = make_opponent_factory(args.opponent)
 
     try:
         mp.set_start_method("spawn", force=True)
@@ -367,6 +378,7 @@ def main():
             base_lr=args.lr,
             anneal_lr=args.anneal_lr,
             team_provider=team_provider,
+            opponent_factory=opponent_factory,
         )
         p = mp.Process(target=worker_entry, args=(global_model, opt, args.obs_dim, cfg), daemon=False)
         p.start()
