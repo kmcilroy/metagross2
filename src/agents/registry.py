@@ -28,6 +28,7 @@ register(AgentSpec(
         "epsilon": ctx.get("epsilon", 0.1),
         "lr": ctx.get("lr", 3e-4),
         "hidden": ctx.get("hidden", 256),
+        "arch": ctx.get("arch", "mlp_2h"),
     },
 ))
 
