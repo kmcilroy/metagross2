@@ -1,41 +1,34 @@
 from __future__ import annotations
-from typing import List, TYPE_CHECKING, Dict, Any
-import os, csv, json
+import csv
+from pathlib import Path
+from typing import Any, Dict, List, TYPE_CHECKING
+
 import numpy as np
 import torch
 import torch.nn as nn
-import torch.optim as optim
 import torch.nn.functional as F
+import torch.optim as optim
 from torch.distributions import Categorical
-from torch.nn.utils import clip_grad_norm_
 
 from poke_env.player import Player
+
 if TYPE_CHECKING:
     from poke_env.environment import AbstractBattle  # type: ignore
 
-from typing import List, Dict, Any
-import numpy as np
-import torch
-import torch.nn.functional as F
-from torch import nn, optim
-from torch.distributions import Categorical
-from poke_env.player.player import Player  # adjust if your import path differs
-
-
 from .encoder import encode_battle
 from .utils.poke_helpers import (
-    enumerate_legal_indices,
-    order_from_index,
     encode_action_index,
+    enumerate_legal_indices,
     MAX_ACTIONS,
+    order_from_index,
 )
 from .config import (
-    SOFTMAX_TEMPERATURE,
     ENTROPY_BETA,
-    VALUE_COEF,
-    MAX_GRAD_NORM,
-    LOG_TURN_BY_TURN,
     LOG_DIR,
+    LOG_TURN_BY_TURN,
+    MAX_GRAD_NORM,
+    SOFTMAX_TEMPERATURE,
+    VALUE_COEF,
 )
 
 
@@ -48,14 +41,14 @@ class ActorCritic(nn.Module):
         self.actor = nn.Sequential(
             nn.Linear(state_dim + MAX_ACTIONS, hidden),
             nn.ReLU(),
-            nn.ReLU(),
+            nn.Linear(hidden, hidden),
             nn.ReLU(),
             nn.Linear(hidden, 1),
         )
         self.critic = nn.Sequential(
             nn.Linear(state_dim, hidden),
             nn.ReLU(),
-            nn.ReLU(),
+            nn.Linear(hidden, hidden),
             nn.ReLU(),
             nn.Linear(hidden, 1),
         )
@@ -111,14 +104,48 @@ class LearningPlayerAC(Player):
 
         self.episode_idx: int = 0
 
-        # Optional knobs (fallback to globals if present)
-        self.entropy_beta = float(globals().get("ENTROPY_BETA", 0.01))
-        self.value_coef = float(globals().get("VALUE_COEF", 0.5))
-        self.max_grad_norm = float(globals().get("MAX_GRAD_NORM", 1.0))
+        self.entropy_beta = float(ENTROPY_BETA)
+        self.value_coef = float(VALUE_COEF)
+        self.max_grad_norm = float(MAX_GRAD_NORM)
 
         # last episode stats (for external logging if desired)
         self.last_episode_return: float = 0.0
         self.last_losses: Dict[str, float] = {}
+
+    # ---------- Model lifecycle ----------
+    def ensure_model(self, state_dim: int) -> None:
+        """Eagerly build the actor-critic. Used by the async A3C worker so
+        global-model weights can be loaded before the first choose_move
+        (otherwise the lazy-init path leaves the agent acting on random
+        weights for the first turn). No-op if already built."""
+        if self.model is None:
+            self.model = ActorCritic(state_dim=state_dim, hidden=self._hidden).to(self.device)
+            self.optimizer = optim.Adam(self.model.parameters(), lr=self._lr)
+
+    def pop_rollout(self) -> List[Dict[str, Any]]:
+        """Drain buffered (state, action, legal) into a trajectory list
+        shaped for the A3C trainer: [{state, action, reward, done, mask}].
+        Per-step `reward` comes from `_rewards` if learn_step was called
+        (sync trainer path); otherwise zero — the async trainer fills the
+        terminal reward externally. Buffers are NOT cleared here; the
+        caller decides via _clear_buffers (consistent with how
+        optimize_after_battle handles its own cleanup)."""
+        T = min(len(self._states), len(self._actions), len(self._legal_sets))
+        out: List[Dict[str, Any]] = []
+        for t in range(T):
+            mask = [False] * MAX_ACTIONS
+            for j in self._legal_sets[t] or []:
+                jj = int(j)
+                if 0 <= jj < MAX_ACTIONS:
+                    mask[jj] = True
+            out.append({
+                "state": np.asarray(self._states[t], dtype=np.float32),
+                "action": int(self._actions[t]),
+                "reward": float(self._rewards[t]) if t < len(self._rewards) else 0.0,
+                "done": False,
+                "mask": mask,
+            })
+        return out
 
     # ---------- Acting ----------
     def choose_move(self, battle: "AbstractBattle"):
@@ -152,8 +179,7 @@ class LearningPlayerAC(Player):
         else:
             with torch.no_grad():
                 logits = self.model.actor_logits(sa)  # [L]
-                temp = float(globals().get("SOFTMAX_TEMPERATURE", 1.0))
-                probs = torch.softmax(logits / max(1e-6, temp), dim=0)
+                probs = torch.softmax(logits / max(1e-6, float(SOFTMAX_TEMPERATURE)), dim=0)
                 dist = Categorical(probs=probs)
                 choice_pos = int(dist.sample().item())
                 probs_list = probs.detach().cpu().tolist()
@@ -314,27 +340,15 @@ class LearningPlayerAC(Player):
         return metrics
     
     def _flush_step_logs(self) -> None:
-        """
-        Write per-turn logs to CSV if enabled via LOG_TURN_BY_TURN.
-        Safe no-op if disabled or if there are no step logs.
-        """
-        if not self._step_logs:
+        """Write per-turn logs to CSV if LOG_TURN_BY_TURN is enabled."""
+        if not self._step_logs or not LOG_TURN_BY_TURN:
             return
 
-        # Read feature flags from globals to avoid import cycles
-        log_turns = bool(globals().get("LOG_TURN_BY_TURN", False))
-        if not log_turns:
-            return
-
-        from pathlib import Path
-        import csv
-
-        log_dir = str(globals().get("LOG_DIR", "logs"))
-        Path(log_dir).mkdir(parents=True, exist_ok=True)
+        Path(LOG_DIR).mkdir(parents=True, exist_ok=True)
 
         ep = int(getattr(self, "episode_idx", 0) or 0)
         fname = f"episode_{ep:04d}.csv" if ep > 0 else "episode.csv"
-        fpath = Path(log_dir) / fname
+        fpath = Path(LOG_DIR) / fname
 
         # Determine columns (union of keys across rows, consistent order)
         keys = []
