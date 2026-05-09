@@ -265,6 +265,7 @@ class LearningPlayerAC(Player):
             "policy_loss": float(losses["policy_loss"].item()),
             "value_loss": float(losses["value_loss"].item()),
             "entropy": float(losses["entropy"].item()),
+            "loss_total": float(losses["total"].detach().item()),
             "grad_norm": grad_norm,
         }
         self.last_episode_return = float(sum(self._rewards))
