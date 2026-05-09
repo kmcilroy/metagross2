@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Virtual env
+.venv/
+venv/
+
+# Training artifacts
+runs/
+logs/
+checkpoints/
+*.pt
+*.ckpt
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Showdown server (cloned by scripts/setup.ps1)
+showdown/
