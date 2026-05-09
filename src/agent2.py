@@ -112,6 +112,41 @@ class LearningPlayerAC(Player):
         self.last_episode_return: float = 0.0
         self.last_losses: Dict[str, float] = {}
 
+    # ---------- Model lifecycle ----------
+    def ensure_model(self, state_dim: int) -> None:
+        """Eagerly build the actor-critic. Used by the async A3C worker so
+        global-model weights can be loaded before the first choose_move
+        (otherwise the lazy-init path leaves the agent acting on random
+        weights for the first turn). No-op if already built."""
+        if self.model is None:
+            self.model = ActorCritic(state_dim=state_dim, hidden=self._hidden).to(self.device)
+            self.optimizer = optim.Adam(self.model.parameters(), lr=self._lr)
+
+    def pop_rollout(self) -> List[Dict[str, Any]]:
+        """Drain buffered (state, action, legal) into a trajectory list
+        shaped for the A3C trainer: [{state, action, reward, done, mask}].
+        Per-step `reward` comes from `_rewards` if learn_step was called
+        (sync trainer path); otherwise zero — the async trainer fills the
+        terminal reward externally. Buffers are NOT cleared here; the
+        caller decides via _clear_buffers (consistent with how
+        optimize_after_battle handles its own cleanup)."""
+        T = min(len(self._states), len(self._actions), len(self._legal_sets))
+        out: List[Dict[str, Any]] = []
+        for t in range(T):
+            mask = [False] * MAX_ACTIONS
+            for j in self._legal_sets[t] or []:
+                jj = int(j)
+                if 0 <= jj < MAX_ACTIONS:
+                    mask[jj] = True
+            out.append({
+                "state": np.asarray(self._states[t], dtype=np.float32),
+                "action": int(self._actions[t]),
+                "reward": float(self._rewards[t]) if t < len(self._rewards) else 0.0,
+                "done": False,
+                "mask": mask,
+            })
+        return out
+
     # ---------- Acting ----------
     def choose_move(self, battle: "AbstractBattle"):
         legal = enumerate_legal_indices(battle)

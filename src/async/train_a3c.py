@@ -214,18 +214,12 @@ def worker_entry(global_model: GlobalAC, opt: torch.optim.Optimizer,
                 max_concurrent_battles=cfg.max_concurrent_battles,
             )
 
-            # Optional CUDA push for the learner's internals
-            if cfg.device == 'cuda' and torch.cuda.is_available():
-                try:
-                    if hasattr(ac_player, 'to_device'):
-                        ac_player.to_device('cuda')
-                    else:
-                        for attr in ('model', 'policy', 'value'):
-                            m = getattr(ac_player, attr, None)
-                            if isinstance(m, nn.Module):
-                                m.to('cuda')
-                except Exception:
-                    pass
+            # Sync the agent's actor-critic with the shared global model so
+            # the behavior policy reflects training progress. Without this,
+            # the lazy-built ActorCritic stays at random init and rollouts
+            # are off-policy in a degenerate sense.
+            ac_player.ensure_model(obs_dim)
+            ac_player.model.load_state_dict(global_model.state_dict())
 
             # ---- One battle ----
             ep_return, traj, won = await _run_one_battle(
